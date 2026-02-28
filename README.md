@@ -1,73 +1,65 @@
-# React + TypeScript + Vite
+# Rose Engine Pattern Generator
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A high-performance desktop application for generating and visualizing intricate guilloché patterns and rosettes, inspired by historical rose engine lathes used in high-end jewelry and luxury watch dial manufacturing.
 
-Currently, two official plugins are available:
+## Overview
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+The **Rose Engine Pattern Generator** is a parametric 3D visualization tool built with **Rust**, **Tauri**, **React**, and **Three.js**. It simulates the kinematics of a physical rose engine lathe to produce mathematically accurate generative art, specifically tailored for subtractive manufacturing aesthetics.
 
-## React Compiler
+Currently, the application acts as a fast and interactive visualization prototype. It computes exact cutting paths—including epitrochoids, hypotrochoids, Lissajous curves, and spirals—and renders them in real-time 3D space with premium metallic (PBR) finishes.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Key Features
 
-## Expanding the ESLint configuration
+- **Four Mathematical Pattern Types**: Generate Trochoids, Rose Curves, Lissajous figures, and Spirals.
+- **Real-Time 3D Visualization**: GPU-accelerated 3D WebGL rendering using React Three Fiber.
+- **Parametric Engine Controls**: Adjust gear ratios (rolling and fixed radius), cam amplitudes, phase shifts, and spindle eccentricities.
+- **Manufacturing Specifications**: Configure physical dimensions natively in millimeters (e.g., 32mm watch dial, inner bore diameters, plate thickness).
+- **Zoned & Layered Patterns**: Create multi-zone designs with boundary clipping, mimicking real-world tool lift-off (Z-axis rapids).
+- **Fast Rust Backend**: Pattern points are computed in parallel using Rust/Rayon, achieving <15ms generation times for complex multi-cut designs.
+- **Exports**: Save designs as 2D vector `SVG` files or configuration `JSON` presets.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Technology Stack
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+- **Frontend**: React, TypeScript, Vite, Tailwind CSS, Zustand
+- **3D Graphics**: Three.js, React Three Fiber
+- **Backend**: Rust, Tauri
+- **Parallel Computing**: Rayon (Rust)
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## Getting Started
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+### Prerequisites
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Ensure you have the following installed on your system:
+- [Node.js](https://nodejs.org/) (v16+)
+- [Rust](https://www.rust-lang.org/tools/install) (latest stable)
+- Tauri dependencies for your specific OS.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### Installation & Development
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+1. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+2. **Start the development server with Tauri:**
+   ```bash
+   npm run tauri dev
+   ```
+   *Note: This will compile the Rust backend and launch the desktop application window.*
+
+3. **Build for production:**
+   ```bash
+   npm run tauri build
+   ```
+
+## Roadmap
+
+The ultimate goal of this project is to become a complete **computational manufacturing pipeline**. Planned upcoming features (Phase 3) include:
+
+- **Solid Mesh Generation**: Converting 2D cut paths into real 3D V-groove subtractive boolean meshes.
+- **STL Export**: Producing watertight binary STL files ready for CNC machining and 3D printing.
+- **Manufacturing Simulation**: Simulating 60° V-tool cut profiles and toolpath g-code generation.
+
+## License
+
+This project is licensed under the MIT License.
