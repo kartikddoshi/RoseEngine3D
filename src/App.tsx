@@ -69,9 +69,8 @@ function App() {
       outer_radius: zone.outer_radius * ratio,
       engine: {
         ...zone.engine,
-        fixed_radius: zone.engine.fixed_radius * ratio,
-        rolling_radius: zone.engine.rolling_radius * ratio,
-        cam_amplitude: zone.engine.cam_amplitude * ratio,
+        // amplitude and radial_step are physical mm values — scale with dial size
+        amplitude: zone.engine.amplitude * ratio,
         radial_step: zone.engine.radial_step * ratio,
       },
     }));

@@ -24,6 +24,13 @@ const ZONE_COLORS = [
     { label: "Cyan",   value: "#00bcd4" },
 ];
 
+const CROSSING_TYPES = [
+    { value: "none",        label: "None"       },
+    { value: "linear",      label: "Linear"     },
+    { value: "basketweave", label: "Basketweave"},
+    { value: "moire",       label: "Moiré"      },
+];
+
 export function ParameterSidebar({
     config,
     setConfig,
@@ -37,7 +44,7 @@ export function ParameterSidebar({
     manufacturingSpec,
     setManufacturingSpec,
 }: SidebarProps) {
-    const [expandedZones, setExpandedZones] = useState<Record<number, boolean>>({ 0: true, 1: true });
+    const [expandedZones, setExpandedZones] = useState<Record<number, boolean>>({ 0: true });
 
     const derived = deriveManufacturing(manufacturingSpec);
     const outerRadius = manufacturingSpec.physical_size_mm / 2;
@@ -63,21 +70,21 @@ export function ParameterSidebar({
 
     function addZone() {
         if (config.zones.length >= 4) return;
-        const lastZone = config.zones[config.zones.length - 1];
         const newZone: PatternZone = {
             inner_radius: 0,
-            outer_radius: lastZone ? Math.max(lastZone.inner_radius, 1) : outerRadius / 2,
+            outer_radius: outerRadius / 2,
             engine: {
-                fixed_radius: outerRadius * 0.4,
-                rolling_radius: outerRadius * 0.15,
-                cam_amplitude: outerRadius * 0.1,
-                phase_shift: 0,
-                is_epitrochoid: false,
-                rotations: 1,
-                radial_step: 0,
+                rosette_lobes: 8,
+                amplitude: 0.4,
+                num_passes: 40,
+                radial_step: 0.28,
+                crossing_type: "linear",
+                phase_increment: 7.5,
+                basketweave_count: 6,
+                rotations_per_pass: 1.0,
             },
-            cut_count: 24,
-            cut_angle_offset: 15,
+            cut_count: 1,
+            cut_angle_offset: 0,
             color: ZONE_COLORS[config.zones.length % ZONE_COLORS.length].value,
             label: `Zone ${config.zones.length + 1}`,
         };
@@ -235,56 +242,65 @@ export function ParameterSidebar({
                                             min={zone.inner_radius + 0.5} max={outerRadius} step={0.5}
                                             onChange={(v) => handleZoneChange(zoneIndex, "outer_radius", v)} />
 
-                                        {/* Cut repetition */}
-                                        <SliderInput label="Cuts"
-                                            value={zone.cut_count}
-                                            min={1} max={96} step={1}
-                                            onChange={(v) => handleZoneChange(zoneIndex, "cut_count", v)} />
-                                        <SliderInput label="Angle Offset (°)"
-                                            value={zone.cut_angle_offset}
-                                            min={0} max={360} step={0.5}
-                                            onChange={(v) => handleZoneChange(zoneIndex, "cut_angle_offset", v)} />
-
-                                        {/* Kinematics */}
+                                        {/* Rose Engine Parameters */}
                                         <div className="text-[9px] uppercase tracking-wider text-zinc-600 pt-1">
-                                            Kinematics
+                                            Rosette
                                         </div>
 
-                                        <div className="flex rounded overflow-hidden border border-zinc-700 text-xs">
-                                            <button onClick={() => handleEngineChange(zoneIndex, "is_epitrochoid", false)}
-                                                className={`flex-1 py-1 transition ${!zone.engine.is_epitrochoid ? "bg-amber-500/20 text-amber-400" : "text-zinc-500 hover:bg-zinc-800"}`}>
-                                                Hypo
-                                            </button>
-                                            <button onClick={() => handleEngineChange(zoneIndex, "is_epitrochoid", true)}
-                                                className={`flex-1 py-1 transition ${zone.engine.is_epitrochoid ? "bg-amber-500/20 text-amber-400" : "text-zinc-500 hover:bg-zinc-800"}`}>
-                                                Epi
-                                            </button>
-                                        </div>
-
-                                        <SliderInput label="Fixed Radius (mm)"
-                                            value={zone.engine.fixed_radius}
-                                            min={0.5} max={outerRadius} step={0.1}
-                                            onChange={(v) => handleEngineChange(zoneIndex, "fixed_radius", v)} />
-                                        <SliderInput label="Rolling Radius (mm)"
-                                            value={zone.engine.rolling_radius}
-                                            min={0.1} max={outerRadius / 2} step={0.1}
-                                            onChange={(v) => handleEngineChange(zoneIndex, "rolling_radius", v)} />
-                                        <SliderInput label="Cam Amplitude (mm)"
-                                            value={zone.engine.cam_amplitude}
-                                            min={0} max={outerRadius / 2} step={0.1}
-                                            onChange={(v) => handleEngineChange(zoneIndex, "cam_amplitude", v)} />
-                                        <SliderInput label="Phase Shift (°)"
-                                            value={zone.engine.phase_shift}
-                                            min={0} max={360} step={1}
-                                            onChange={(v) => handleEngineChange(zoneIndex, "phase_shift", v)} />
-                                        <SliderInput label="Curve Rotations"
-                                            value={zone.engine.rotations}
-                                            min={0.25} max={10} step={0.25}
-                                            onChange={(v) => handleEngineChange(zoneIndex, "rotations", v)} />
+                                        <SliderInput label="Rosette Lobes"
+                                            value={zone.engine.rosette_lobes}
+                                            min={1} max={72} step={1}
+                                            onChange={(v) => handleEngineChange(zoneIndex, "rosette_lobes", Math.round(v))} />
+                                        <SliderInput label="Amplitude (mm)"
+                                            value={zone.engine.amplitude}
+                                            min={0.05} max={1.5} step={0.05}
+                                            onChange={(v) => handleEngineChange(zoneIndex, "amplitude", v)} />
+                                        <SliderInput label="Number of Passes"
+                                            value={zone.engine.num_passes}
+                                            min={5} max={100} step={1}
+                                            onChange={(v) => handleEngineChange(zoneIndex, "num_passes", Math.round(v))} />
                                         <SliderInput label="Radial Step (mm)"
                                             value={zone.engine.radial_step}
-                                            min={0} max={1} step={0.01}
+                                            min={0.05} max={1.0} step={0.05}
                                             onChange={(v) => handleEngineChange(zoneIndex, "radial_step", v)} />
+                                        <SliderInput label="Rotations per Pass"
+                                            value={zone.engine.rotations_per_pass}
+                                            min={0.5} max={3.0} step={0.5}
+                                            onChange={(v) => handleEngineChange(zoneIndex, "rotations_per_pass", v)} />
+
+                                        {/* Crossing type */}
+                                        <div className="text-[9px] uppercase tracking-wider text-zinc-600 pt-1">
+                                            Crossing Type
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-1">
+                                            {CROSSING_TYPES.map((ct) => (
+                                                <button key={ct.value}
+                                                    onClick={() => handleEngineChange(zoneIndex, "crossing_type", ct.value)}
+                                                    className={`text-[10px] py-1.5 rounded border transition ${
+                                                        zone.engine.crossing_type === ct.value
+                                                            ? "bg-amber-500/20 border-amber-500/60 text-amber-400"
+                                                            : "border-zinc-700 text-zinc-500 hover:bg-zinc-800"
+                                                    }`}>
+                                                    {ct.label}
+                                                </button>
+                                            ))}
+                                        </div>
+
+                                        {/* Phase increment — shown for any non-none crossing */}
+                                        {zone.engine.crossing_type !== "none" && (
+                                            <SliderInput label="Phase Increment (°)"
+                                                value={zone.engine.phase_increment}
+                                                min={0} max={90} step={0.5}
+                                                onChange={(v) => handleEngineChange(zoneIndex, "phase_increment", v)} />
+                                        )}
+
+                                        {/* Basketweave count — only for basketweave */}
+                                        {zone.engine.crossing_type === "basketweave" && (
+                                            <SliderInput label="Basketweave Count"
+                                                value={zone.engine.basketweave_count}
+                                                min={2} max={12} step={1}
+                                                onChange={(v) => handleEngineChange(zoneIndex, "basketweave_count", Math.round(v))} />
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -304,7 +320,7 @@ export function ParameterSidebar({
     );
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// ── Sub-components ──────────────────────────────────────────────────────────────────────────────
 
 function SectionLabel({ children, className = "" }: { children: React.ReactNode; className?: string }) {
     return (
@@ -324,7 +340,7 @@ function SliderInput({
         <div className="space-y-0.5">
             <div className="flex justify-between text-[10px]">
                 <span className="text-zinc-400">{label}</span>
-                <span className="text-zinc-300 font-mono">{value.toFixed(step < 1 ? 2 : 0)}</span>
+                <span className="text-zinc-300 font-mono">{Number.isInteger(step) ? Math.round(value) : value.toFixed(step < 0.1 ? 3 : 2)}</span>
             </div>
             <input type="range" min={min} max={max} step={step} value={value}
                 onChange={(e) => onChange(parseFloat(e.target.value))}

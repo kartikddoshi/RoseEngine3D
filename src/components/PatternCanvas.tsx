@@ -1,11 +1,32 @@
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Environment, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
-import type { CutPath, ZonedPatternConfig } from "../types/generator";
+import type { CutPath, Point3D, ZonedPatternConfig } from "../types/generator";
 
 interface PatternCanvasProps {
     zonedPaths: CutPath[][];
     config: ZonedPatternConfig;
+}
+
+/**
+ * Split a CutPath into on-surface segments, discarding z>=1.0 lift points.
+ * One CutPath may become multiple renderable segments when the tool lifts
+ * between zone-clipped arcs.
+ */
+function splitPathAtLifts(path: CutPath): Point3D[][] {
+    const segments: Point3D[][] = [];
+    let current: Point3D[] = [];
+    for (const p of path.points) {
+        if (p.z > 1.0) {
+            // Tool is lifted — end the current segment
+            if (current.length >= 2) segments.push(current);
+            current = [];
+        } else {
+            current.push(p);
+        }
+    }
+    if (current.length >= 2) segments.push(current);
+    return segments;
 }
 
 export function PatternCanvas({ zonedPaths, config }: PatternCanvasProps) {
@@ -44,24 +65,32 @@ export function PatternCanvas({ zonedPaths, config }: PatternCanvasProps) {
                     return (
                         <group key={zoneIndex}>
                             {zonePaths.map((path, pathIndex) => {
-                                const points = path.points.map(
-                                    (p) => new THREE.Vector3(p.x, p.y, p.z)
-                                );
-                                if (points.length < 2) return null;
-                                const curve = new THREE.CatmullRomCurve3(points);
-                                return (
-                                    <mesh key={pathIndex} castShadow receiveShadow>
-                                        <tubeGeometry args={[curve, points.length, 0.05, 6, false]} />
-                                        <meshStandardMaterial
-                                            color={zoneColor}
-                                            metalness={0.95}
-                                            roughness={0.15}
-                                            envMapIntensity={1.5}
-                                            emissive={zoneColor}
-                                            emissiveIntensity={0.08}
-                                        />
-                                    </mesh>
-                                );
+                                // Split at lift points so we don't render raised tubes
+                                const segments = splitPathAtLifts(path);
+                                return segments.map((seg, segIndex) => {
+                                    const points = seg.map(
+                                        (p) => new THREE.Vector3(p.x, p.y, p.z)
+                                    );
+                                    if (points.length < 2) return null;
+                                    const curve = new THREE.CatmullRomCurve3(points);
+                                    return (
+                                        <mesh
+                                            key={`${pathIndex}-${segIndex}`}
+                                            castShadow
+                                            receiveShadow
+                                        >
+                                            <tubeGeometry args={[curve, points.length, 0.04, 5, false]} />
+                                            <meshStandardMaterial
+                                                color={zoneColor}
+                                                metalness={0.95}
+                                                roughness={0.15}
+                                                envMapIntensity={1.5}
+                                                emissive={zoneColor}
+                                                emissiveIntensity={0.08}
+                                            />
+                                        </mesh>
+                                    );
+                                });
                             })}
                         </group>
                     );
