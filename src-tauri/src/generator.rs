@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::f64::consts::PI;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -57,6 +58,43 @@ impl CutPath {
     }
 }
 
+/// How the phase changes between successive concentric passes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CrossingType {
+    /// Concentric waves — no phase change between passes
+    None,
+    /// Barleycorn/Grain d'Orge — phase advances linearly per pass
+    Linear,
+    /// Basketweave — phase zigzags: up for N passes, then down for N passes
+    Basketweave,
+    /// Moiré — two interleaved sets with slightly offset lobe counts
+    Moire,
+}
+
+/// Rose Engine parameters — the primary engine model.
+/// Each parameter set generates many concentric sinusoidal passes,
+/// exactly as a real rose engine does.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoseEngineParams {
+    /// Number of lobes on the rosette cam (e.g. 6, 8, 12, 24, 72)
+    pub rosette_lobes: u32,
+    /// Amplitude of the rosette cam oscillation in mm
+    pub amplitude: f64,
+    /// Number of concentric passes from outer to inner radius
+    pub num_passes: u32,
+    /// Radial spacing between passes in mm
+    pub radial_step: f64,
+    /// Crossing type: how phase changes between passes
+    /// Serialised as a plain string: "none" | "linear" | "basketweave" | "moire"
+    pub crossing_type: String,
+    /// Phase increment per pass in degrees (used by Linear and Basketweave)
+    pub phase_increment: f64,
+    /// Number of cuts before phase reversal in Basketweave mode
+    pub basketweave_count: u32,
+    /// Total spindle rotations per pass (usually 1.0)
+    pub rotations_per_pass: f64,
+}
+
 /// Legacy single-pattern config (kept for backward compat with export commands)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PatternConfig {
@@ -68,24 +106,12 @@ pub struct PatternConfig {
 
 impl PatternConfig {
     pub fn generate(&self) -> Vec<CutPath> {
-        let mut paths = Vec::new();
-        for i in 0..self.cut_count {
-            let effective_amplitude = (self.engine.cam_amplitude
-                - (i as f64 * self.engine.radial_step))
-                .max(0.0);
-            let mut engine_for_cut = self.engine.clone();
-            engine_for_cut.cam_amplitude = effective_amplitude;
-            let mut cut = self.surface.generate_cut(&engine_for_cut, None);
-            let angle = i as f64 * self.cut_angle_offset;
-            cut.rotate(angle);
-            paths.push(cut);
-        }
-        paths
+        let zone_bounds = None;
+        self.surface.generate_cut(&self.engine, zone_bounds)
     }
 }
 
 /// An annular zone on the workpiece with its own pattern parameters.
-/// Zone boundaries are measured from the spindle axis (0,0).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PatternZone {
     /// Inner radius of this zone from spindle axis in mm
@@ -93,8 +119,14 @@ pub struct PatternZone {
     /// Outer radius of this zone from spindle axis in mm
     pub outer_radius: f64,
     pub engine: RoseEngineParams,
+    /// Kept for backward compat — no longer drives pass count (num_passes does)
     pub cut_count: usize,
+    /// Kept for backward compat — unused in primary path
     pub cut_angle_offset: f64,
+    /// Hex color string for 3-D visualisation
+    pub color: String,
+    /// Display label
+    pub label: String,
 }
 
 /// Multi-zone pattern config — the primary config type for the app.
@@ -106,108 +138,119 @@ pub struct ZonedPatternConfig {
 
 impl ZonedPatternConfig {
     /// Generate all zones, returning Vec<Vec<CutPath>> indexed by zone.
+    /// Each inner Vec contains one CutPath per concentric pass.
     pub fn generate(&self) -> Vec<Vec<CutPath>> {
         self.zones
             .iter()
             .map(|zone| {
-                let mut paths = Vec::new();
-                for i in 0..zone.cut_count {
-                    let effective_amplitude = (zone.engine.cam_amplitude
-                        - (i as f64 * zone.engine.radial_step))
-                        .max(0.0);
-                    let mut engine_for_cut = zone.engine.clone();
-                    engine_for_cut.cam_amplitude = effective_amplitude;
-                    let zone_bounds = Some((zone.inner_radius, zone.outer_radius));
-                    let mut cut = self.surface.generate_cut(&engine_for_cut, zone_bounds);
-                    let angle = i as f64 * zone.cut_angle_offset;
-                    cut.rotate(angle);
-                    paths.push(cut);
-                }
-                paths
+                let zone_bounds = Some((zone.inner_radius, zone.outer_radius));
+                self.surface.generate_cut(&zone.engine, zone_bounds)
             })
             .collect()
     }
 }
 
-/// Configuration for a specific Rose Engine Trochoid cut.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RoseEngineParams {
-    /// Fixed circle radius (R) in mm
-    pub fixed_radius: f64,
-    /// Rolling circle radius (r) in mm
-    pub rolling_radius: f64,
-    /// Distance of pen from center of rolling circle (d / amplitude) in mm
-    pub cam_amplitude: f64,
-    /// Phase shift or offset (theta) in degrees
-    pub phase_shift: f64,
-    /// Is it rolling outside (Epitrochoid) or inside (Hypotrochoid)?
-    pub is_epitrochoid: bool,
-    /// Total rotations to calculate (resolution/duration)
-    pub rotations: f64,
-    /// How much to shrink cam_amplitude between successive cuts (mm units).
-    /// 0.0 = pure rotation. 0.05–0.3 = authentic guilloche fill.
-    pub radial_step: f64,
-}
-
 impl SurfaceType {
-    /// Generates a cut path on this surface.
+    /// Generate all concentric passes for one zone, returning one CutPath per pass.
     ///
-    /// `zone_bounds`: if Some((inner, outer)), clips points to the annular zone
-    /// measured from the spindle origin. The workpiece boundary (incl. eccentricity
-    /// and bore) is always applied. If None, only workpiece boundary is applied.
+    /// `zone_bounds`: if Some((inner, outer)), points outside that annular ring
+    /// are included with z=2.0 (tool lifted).  If None, only workpiece bounds apply.
     pub fn generate_cut(
         &self,
         params: &RoseEngineParams,
         zone_bounds: Option<(f64, f64)>,
-    ) -> CutPath {
-        let mut points = Vec::new();
-        // 5 steps per degree for smooth rendering of high-frequency cuts
-        let steps = (params.rotations * 360.0 * 5.0) as usize;
+    ) -> Vec<CutPath> {
+        let num_passes = params.num_passes.max(1) as usize;
+        // High resolution: 2000 points per full rotation
+        let steps_per_pass = (params.rotations_per_pass * 2000.0).ceil() as usize;
 
-        for i in 0..=steps {
-            let theta = (i as f64 / 5.0).to_radians();
-            let rad_fix = params.fixed_radius;
-            let rad_rol = params.rolling_radius;
-            let amp = params.cam_amplitude;
-            let phase = params.phase_shift.to_radians();
+        // Compute effective outer radius from zone or surface
+        let outer_r = zone_bounds
+            .map(|(_, outer)| outer)
+            .unwrap_or_else(|| match self {
+                SurfaceType::Circular(c) => c.outer_radius,
+                SurfaceType::Rectangular(r) => (r.width.min(r.height)) / 2.0,
+            });
 
-            let t = theta + phase;
-            let (x, y) = if params.is_epitrochoid {
-                let sum = rad_fix + rad_rol;
-                let x = sum * t.cos() - amp * ((sum / rad_rol) * t).cos();
-                let y = sum * t.sin() - amp * ((sum / rad_rol) * t).sin();
-                (x, y)
+        let lobes = params.rosette_lobes as f64;
+        let amp = params.amplitude;
+        let phase_inc_rad = params.phase_increment.to_radians();
+
+        let crossing = params.crossing_type.to_lowercase();
+
+        // For Moiré: build a second interleaved pass set with +1 lobe
+        let is_moire = crossing == "moire";
+        let total_logical = if is_moire { num_passes * 2 } else { num_passes };
+
+        let mut paths: Vec<CutPath> = Vec::with_capacity(total_logical);
+
+        for pass_idx in 0..total_logical {
+            // For moiré, even indices = primary set, odd indices = secondary set
+            let (effective_lobes, logical_i) = if is_moire {
+                let set_idx = pass_idx / 2; // which pass within its set
+                let extra = (pass_idx % 2) as f64; // 0 or 1 extra lobe
+                (lobes + extra, set_idx)
             } else {
-                let diff = rad_fix - rad_rol;
-                let x = diff * t.cos() + amp * ((diff / rad_rol) * t).cos();
-                let y = diff * t.sin() - amp * ((diff / rad_rol) * t).sin();
-                (x, y)
+                (lobes, pass_idx)
             };
 
-            // Check all boundary conditions
-            let on_surface = self.is_within_bounds(x, y)
-                && self.is_outside_bore(x, y)
-                && zone_bounds
-                    .map(|(inner, outer)| {
-                        let r = (x * x + y * y).sqrt();
-                        r >= inner && r <= outer
-                    })
-                    .unwrap_or(true);
-
-            if on_surface {
-                // Z = 0.0: surface level (top face of workpiece)
-                points.push(Point3D { x, y, z: 0.0 });
-            } else {
-                // Z = 2.0: safe tool-lift height above surface
-                points.push(Point3D { x, y, z: 2.0 });
+            // Radius for this pass (step inward from outer edge)
+            let r_i = outer_r - logical_i as f64 * params.radial_step;
+            if r_i <= 0.0 {
+                break;
             }
+
+            // Phase for this pass
+            let phase_rad: f64 = match crossing.as_str() {
+                "none" => 0.0,
+                "linear" => logical_i as f64 * phase_inc_rad,
+                "moire" => logical_i as f64 * phase_inc_rad,
+                "basketweave" => {
+                    let bw = params.basketweave_count.max(1) as usize;
+                    // Zigzag: 0..bw rising, bw..2bw falling, repeating
+                    let cycle = logical_i % (2 * bw);
+                    if cycle < bw {
+                        cycle as f64 * phase_inc_rad
+                    } else {
+                        // descending back
+                        (2 * bw - cycle) as f64 * phase_inc_rad
+                    }
+                }
+                _ => 0.0, // fallback: no crossing
+            };
+
+            let mut points: Vec<Point3D> = Vec::with_capacity(steps_per_pass + 1);
+
+            for step in 0..=steps_per_pass {
+                let theta = (step as f64 / steps_per_pass as f64)
+                    * 2.0 * PI
+                    * params.rotations_per_pass;
+
+                let r = r_i + amp * (effective_lobes * theta + phase_rad).sin();
+                let x = r * theta.cos();
+                let y = r * theta.sin();
+
+                // Determine z: 0.0 = on surface (cutting), 2.0 = lifted
+                let on_surface = self.is_within_bounds(x, y)
+                    && self.is_outside_bore(x, y)
+                    && zone_bounds
+                        .map(|(inner, outer)| {
+                            let rr = (x * x + y * y).sqrt();
+                            rr >= inner && rr <= outer
+                        })
+                        .unwrap_or(true);
+
+                let z = if on_surface { 0.0 } else { 2.0 };
+                points.push(Point3D { x, y, z });
+            }
+
+            paths.push(CutPath { points });
         }
 
-        CutPath { points }
+        paths
     }
 
     /// Is the point (x,y) inside the workpiece boundary?
-    /// For circular surfaces this uses the ECCENTRIC workpiece center.
     pub fn is_within_bounds(&self, x: f64, y: f64) -> bool {
         match self {
             SurfaceType::Circular(c) => {
@@ -222,16 +265,15 @@ impl SurfaceType {
     }
 
     /// Is the point (x,y) outside the bore?
-    /// The bore is always centered at the spindle origin (0,0).
     pub fn is_outside_bore(&self, x: f64, y: f64) -> bool {
         match self {
             SurfaceType::Circular(c) => {
                 if c.inner_radius <= 0.0 {
-                    return true; // No bore
+                    return true;
                 }
                 (x * x + y * y).sqrt() >= c.inner_radius
             }
-            SurfaceType::Rectangular(_) => true, // No bore concept for rectangular
+            SurfaceType::Rectangular(_) => true,
         }
     }
 
