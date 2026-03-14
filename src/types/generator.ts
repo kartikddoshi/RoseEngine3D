@@ -33,24 +33,26 @@ export interface CutPath {
 }
 
 // ---------------------------------------------------------------------------
-// Rose engine parameters
+// Rose engine parameters — proper sinusoidal concentric-pass model
 // ---------------------------------------------------------------------------
 
 export interface RoseEngineParams {
-    /** Fixed circle radius R (mm) */
-    fixed_radius: number;
-    /** Rolling circle radius r (mm) */
-    rolling_radius: number;
-    /** Cam follower amplitude d (mm) */
-    cam_amplitude: number;
-    /** Phase shift in degrees */
-    phase_shift: number;
-    /** true = epitrochoid (rolling outside), false = hypotrochoid (rolling inside) */
-    is_epitrochoid: boolean;
-    /** Number of full curve rotations to compute */
-    rotations: number;
-    /** Amplitude reduction per successive cut (mm). 0 = pure rotation. */
+    /** Number of lobes on the rosette cam (e.g. 6, 8, 12, 24, 72) */
+    rosette_lobes: number;
+    /** Amplitude of the rosette cam oscillation in mm */
+    amplitude: number;
+    /** Number of concentric passes from outer to inner radius */
+    num_passes: number;
+    /** Radial spacing between passes in mm */
     radial_step: number;
+    /** Crossing type: "none" | "linear" | "basketweave" | "moire" */
+    crossing_type: string;
+    /** Phase increment per pass in degrees */
+    phase_increment: number;
+    /** Number of cuts before phase reversal (basketweave mode) */
+    basketweave_count: number;
+    /** Total spindle rotations per pass (usually 1.0) */
+    rotations_per_pass: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,7 +65,9 @@ export interface PatternZone {
     /** Outer radius of this zone from spindle axis (mm) */
     outer_radius: number;
     engine: RoseEngineParams;
+    /** Kept for backward compat — num_passes in engine drives concentric cuts */
     cut_count: number;
+    /** Kept for backward compat — unused in primary path */
     cut_angle_offset: number;
     /** Hex color for 3D visualization */
     color: string;
@@ -89,7 +93,7 @@ export interface PatternConfig {
     cut_angle_offset: number;
 }
 
-// Extended pattern types (Phase 2)
+// Extended pattern types (Phase 2 — supplementary)
 export type PatternType =
     | { pattern_type: "Trochoid"; fixed_radius: number; rolling_radius: number; cam_amplitude: number; phase_shift: number; is_epitrochoid: boolean; rotations: number; }
     | { pattern_type: "RoseCurve"; k: number; amplitude: number; rotations: number; }

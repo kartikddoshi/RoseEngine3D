@@ -34,42 +34,27 @@ export const initialManufacturingSpec: ManufacturingSpec = {
     eccentricity_y_mm: 0,
 };
 
+// Beautiful barleycorn-style pattern as default
 export const initialConfig: ZonedPatternConfig = {
     surface: specToSurface(initialManufacturingSpec),
     zones: [
         {
-            inner_radius: 8,
+            inner_radius: 2,
             outer_radius: 16,
             engine: {
-                fixed_radius: 14,
-                rolling_radius: 2.4,
-                cam_amplitude: 1.6,
-                phase_shift: 0,
-                is_epitrochoid: false,
-                rotations: 1,
-                radial_step: 0,
+                rosette_lobes: 8,
+                amplitude: 0.4,
+                num_passes: 50,
+                radial_step: 0.28,
+                crossing_type: "linear",
+                phase_increment: 7.5,
+                basketweave_count: 6,
+                rotations_per_pass: 1.0,
             },
-            cut_count: 48,
-            cut_angle_offset: 7.5,
+            cut_count: 1,
+            cut_angle_offset: 0,
             color: "#d4af37",
-            label: "Outer Zone",
-        },
-        {
-            inner_radius: 2,
-            outer_radius: 8,
-            engine: {
-                fixed_radius: 6,
-                rolling_radius: 2,
-                cam_amplitude: 0.8,
-                phase_shift: 0,
-                is_epitrochoid: true,
-                rotations: 2,
-                radial_step: 0.05,
-            },
-            cut_count: 24,
-            cut_angle_offset: 15,
-            color: "#c0c0c0",
-            label: "Inner Zone",
+            label: "Main Zone",
         },
     ],
 };

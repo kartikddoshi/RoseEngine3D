@@ -3,7 +3,6 @@ pub mod patterns;
 pub mod export;
 
 use std::path::PathBuf;
-use rayon::prelude::*;
 
 #[tauri::command]
 fn generate_pattern(config: generator::PatternConfig) -> Result<Vec<generator::CutPath>, String> {
@@ -13,18 +12,9 @@ fn generate_pattern(config: generator::PatternConfig) -> Result<Vec<generator::C
 
 #[tauri::command]
 fn generate_pattern_parallel(config: generator::PatternConfig) -> Result<Vec<generator::CutPath>, String> {
-    let base_cut = config.surface.generate_cut(&config.engine, None);
-
-    let paths: Vec<generator::CutPath> = (0..config.cut_count)
-        .into_par_iter()
-        .map(|i| {
-            let angle = i as f64 * config.cut_angle_offset;
-            let mut cut = base_cut.clone();
-            cut.rotate(angle);
-            cut
-        })
-        .collect();
-
+    // With the new model, generate_cut already returns multiple paths.
+    // Just delegate to the standard generate path.
+    let paths = config.generate();
     Ok(paths)
 }
 
@@ -37,26 +27,23 @@ fn generate_extended_pattern(
 ) -> Result<Vec<generator::CutPath>, String> {
     let base_cut = pattern.generate_path(0.0);
 
-    let paths: Vec<generator::CutPath> = (0..cut_count)
-        .into_par_iter()
-        .map(|i| {
-            let angle = i as f64 * cut_angle_offset;
-            let mut cut = base_cut.clone();
-            cut.rotate(angle);
+    let mut paths: Vec<generator::CutPath> = Vec::new();
+    for i in 0..cut_count {
+        let angle = i as f64 * cut_angle_offset;
+        let mut cut = base_cut.clone();
+        cut.rotate(angle);
 
-            // Apply boundary clipping
-            let mut clipped_cut = cut.clone();
-            for point in &mut clipped_cut.points {
-                if !surface.is_within_bounds(point.x, point.y)
-                    || !surface.is_outside_bore(point.x, point.y)
-                {
-                    point.z = 2.0; // Fixed safe lift height
-                }
+        // Apply boundary clipping
+        for point in &mut cut.points {
+            if !surface.is_within_bounds(point.x, point.y)
+                || !surface.is_outside_bore(point.x, point.y)
+            {
+                point.z = 2.0;
             }
+        }
 
-            clipped_cut
-        })
-        .collect();
+        paths.push(cut);
+    }
 
     Ok(paths)
 }
@@ -103,9 +90,9 @@ fn export_pattern_data(
 }
 
 #[tauri::command]
-fn validate_parameters(config: generator::PatternConfig) -> Result<(), String> {
-    if config.cut_count == 0 {
-        return Err("Cut count must be greater than 0".to_string());
+fn validate_parameters(config: generator::ZonedPatternConfig) -> Result<(), String> {
+    if config.zones.is_empty() {
+        return Err("At least one zone is required".to_string());
     }
 
     match &config.surface {
@@ -133,14 +120,22 @@ fn validate_parameters(config: generator::PatternConfig) -> Result<(), String> {
         }
     }
 
-    if config.engine.fixed_radius <= 0.0 {
-        return Err("Fixed radius must be positive".to_string());
-    }
-    if config.engine.rolling_radius <= 0.0 {
-        return Err("Rolling radius must be positive".to_string());
-    }
-    if config.engine.rotations <= 0.0 {
-        return Err("Rotations must be positive".to_string());
+    for (i, zone) in config.zones.iter().enumerate() {
+        if zone.engine.rosette_lobes == 0 {
+            return Err(format!("Zone {}: rosette_lobes must be >= 1", i + 1));
+        }
+        if zone.engine.amplitude < 0.0 {
+            return Err(format!("Zone {}: amplitude must be >= 0", i + 1));
+        }
+        if zone.engine.num_passes == 0 {
+            return Err(format!("Zone {}: num_passes must be >= 1", i + 1));
+        }
+        if zone.engine.radial_step <= 0.0 {
+            return Err(format!("Zone {}: radial_step must be positive", i + 1));
+        }
+        if zone.engine.rotations_per_pass <= 0.0 {
+            return Err(format!("Zone {}: rotations_per_pass must be positive", i + 1));
+        }
     }
 
     Ok(())
